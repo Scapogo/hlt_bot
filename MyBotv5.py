@@ -26,7 +26,7 @@ game = hlt.Game()
 # As soon as you call "ready" function below, the 2 second per turn timer will start.
 ship_status = {}
 
-game.ready("ScapoBot")
+game.ready("ScapoBotv5")
 
 # Now that your bot is initialized, save a message to yourself in the log file with some important information.
 #   Here, you log here your id, which you can always fetch from the game object by using my_id.
@@ -54,11 +54,7 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
     logging.info("Ship position: {}".format(ship.position.x))
     ship_position = [ship.position.x, ship.position.y]
     dest_position = [destination.x, destination.y]
-
-    x_dist = destination.x - ship.position.x
-    y_dist = destination.y - ship.position.y
-    
-    if x_dist > 0 or (x_dist < - game_map.width // 2):
+    if ship_position[0] < dest_position[0]:
         new_position = ship.position.directional_offset(Direction.East)
         if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             x_value = game_map[new_position].halite_amount
@@ -66,7 +62,7 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
         else:
             x_value = 9999
             directions.append(Direction.Still)
-    elif x_dist < 0 or (x_dist > game_map.width // 2):
+    elif ship_position[0] > dest_position[0]:
         new_position = ship.position.directional_offset(Direction.West)
         if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             x_value = game_map[new_position].halite_amount
@@ -78,7 +74,7 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
         x_value = 9999
         directions.append(Direction.Still)
 
-    if y_dist > 0 or (y_dist < - game_map.height // 2):
+    if ship_position[1] < dest_position[1]:
         new_position = ship.position.directional_offset(Direction.South)
         if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             y_value = game_map[new_position].halite_amount
@@ -86,7 +82,7 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
         else:
             y_value = 9999
             directions.append(Direction.Still)
-    elif y_dist < 0 or (y_dist > game_map.height // 2):
+    elif ship_position[1] > dest_position[1]:
         new_position = ship.position.directional_offset(Direction.North)
         if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             y_value = game_map[new_position].halite_amount
@@ -105,33 +101,6 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
 
     return direction
 
-def closest_dropoff(ship, game_map, myself, dist_to_base):
-    """Find closest dropoff for actual ship"""
-    closest_doff = myself.shipyard.position
-    closest_doff_dist = dist_to_base
-
-    if len(myself.get_dropoffs()) > 0:
-        for dropoff in myself.get_dropoffs():
-            dist_to_dropoff = game_map.calculate_distance(ship.position, dropoff.position)
-            if closest_doff_dist > dist_to_dropoff:
-                logging.info("Old distance: {} new distance: {}".format(closest_doff_dist, dist_to_dropoff))
-                closest_doff_dist = dist_to_dropoff
-                closest_doff = dropoff.position
-    
-    return closest_doff
-
-def get_distance_to_dropoff(ship, game_map, myself):
-    """Get distance to closest dropoff"""
-    closest_distance = game_map.calculate_distance(ship.position, myself.shipyard.position)
-
-    dooffs = myself.get_dropoffs()
-
-    for dooff in dooffs:
-        doff_distance = game_map.calculate_distance(ship.position, dooff.position)
-        if closest_distance > doff_distance:
-            closest_distance = doff_distance
-
-    return closest_distance
 
 while True:
     # This loop handles each turn of the game. The game object changes every turn, and you refresh that state by
@@ -146,10 +115,6 @@ while True:
     command_queue = []
     avoid_moves = []
     ship_count = len(me.get_ships())
-    dropoff_count = len(me.get_dropoffs())
-    dropoff_positions = []
-    for doff in me.get_dropoffs():
-        dropoff_positions.append(doff.position)
 
     logging.info("Turn start: {}".format(ship_status))
 
@@ -160,16 +125,15 @@ while True:
 
         if ship.id not in ship_status:
             ship_status[ship.id] = "harvesting"
-        if ship_count // 1.1 < harvesting_ships and ship_status[ship.id] == "exploring":
+        if ship_count // 2 < harvesting_ships and ship_status[ship.id] == "exploring":
             ship_status[ship.id] = "harvesting"
 
         if ship_status[ship.id] == "returning":
-            if ship.position == me.shipyard.position or ship.position in dropoff_positions:
-                ship_status[ship.id] = "harvesting" # "exploring"
+            if ship.position == me.shipyard.position:
+                ship_status[ship.id] = "exploring"
             else:
-                distance_to_base = game_map.calculate_distance(ship.position, me.shipyard.position)
-                close_doff = closest_dropoff(ship, game_map, me, distance_to_base)
-                move = cheap_navigation(ship, game_map, avoid_moves, close_doff)
+                move = cheap_navigation(ship, game_map, avoid_moves, me.shipyard.position)
+                # move = game_map.naive_navigate(ship, me.shipyard.position)
                 avoid_moves.append(ship.position.directional_offset(move))
                 command_queue.append(ship.move(move))
                 continue
@@ -178,7 +142,7 @@ while True:
                 surroundings = ship.position.get_surrounding_cardinals()
                 logging.info("Surroundings: {}".format(surroundings))
                 actual_cell = ship.position
-                best_cell = ship.position
+                best_cell =  ship.position
                 logging.info("Actual: {} Best: {}".format(actual_cell, best_cell))
                 if game_map[best_cell].halite_amount < 50:
                     for cell in surroundings:
@@ -198,15 +162,10 @@ while True:
                     command_queue.append(ship.move(move))
                 continue
         elif ship.is_full: # ship.halite_amount >= constants.MAX_HALITE / 1.5:
-            distance_to_base = get_distance_to_dropoff(ship, game_map, me)
-            if dropoff_count < 2 and distance_to_base > 8 and game_map[ship.position].halite_amount > 200 and me.halite_amount >= constants.DROPOFF_COST:
-                command_queue.append(ship.make_dropoff())
-            else:
-                ship_status[ship.id] = "returning"
-                close_doff = closest_dropoff(ship, game_map, me, distance_to_base)
-                move = cheap_navigation(ship, game_map, avoid_moves, close_doff)
-                avoid_moves.append(ship.position.directional_offset(move))
-                command_queue.append(ship.move(move))
+            ship_status[ship.id] = "returning"
+            move = game_map.naive_navigate(ship, me.shipyard.position)
+            avoid_moves.append(ship.position.directional_offset(move))
+            command_queue.append(ship.move(move))
             continue
 
         if game_map[ship.position].halite_amount < constants.MAX_HALITE / 10 or ship.is_full:
@@ -220,11 +179,9 @@ while True:
     turn_no = game.turn_number
 
     ship_optimal_count = turn_no // 15
-    max_ships = 13 + dropoff_count * 3
-    ship_optimal_count = ship_optimal_count if ship_optimal_count < max_ships else max_ships
 
     # TODO: vic zelvicek
-    if me.halite_amount >= constants.SHIP_COST and not game_map[me.shipyard].is_occupied and (ship_count < ship_optimal_count or ship_count < 5) and not me.shipyard.position in avoid_moves:        
+    if game.turn_number <= 200 and me.halite_amount >= constants.SHIP_COST and not game_map[me.shipyard].is_occupied and (ship_count < ship_optimal_count or ship_count < 5) and not me.shipyard.position in avoid_moves:
         command_queue.append(me.shipyard.spawn())
 
     logging.info("Ship types: {}".format(ship_status))
