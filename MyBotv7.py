@@ -27,10 +27,9 @@ game = hlt.Game()
 # This is a good place to do computationally expensive start-up pre-processing.
 # As soon as you call "ready" function below, the 2 second per turn timer will start.
 ship_status = {}
+max_dropoff = 1
 
-possible_direction = [Direction.North, Direction.South, Direction.East, Direction.West]
-
-game.ready("ScapoBot")
+game.ready("ScapoBotv7")
 
 # Now that your bot is initialized, save a message to yourself in the log file with some important information.
 #   Here, you log here your id, which you can always fetch from the game object by using my_id.
@@ -38,19 +37,19 @@ logging.info("Successfully created bot! My Player ID is {}.".format(game.my_id))
 
 """ <<<Game Loop>>> """
 
-def get_random_move(ship, game_map, avoid_moves, shipyards):
+def get_random_move(ship, game_map, avoid_moves):
     """Generate random move with some checking and addition to avoidance list"""
     options = [ Direction.North, Direction.South, Direction.East, Direction.West ]
     while True:
         move = random.choice(options)
         options.remove(move)
         new_position = ship.position.directional_offset(move)
-        if new_position not in avoid_moves and new_position not in shipyards:
+        if new_position not in avoid_moves:
             avoid_moves.append(new_position)
             move = game_map.naive_navigate(ship, new_position)
             return move
         if len(options) == 0:
-            return Direction.Still
+            return ship.position
 
 def cheap_navigation(ship, game_map, avoid_moves, destination):
     """Check cheaper way for navigation"""
@@ -59,9 +58,6 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
     ship_position = [ship.position.x, ship.position.y]
     dest_position = [destination.x, destination.y]
 
-    forbiden_slots = [destination.directional_offset(Direction.North)]
-    forbiden_slots.append(forbiden_slots[0].directional_offset(Direction.North))
-
     x_dist = destination.x - ship.position.x
     y_dist = destination.y - ship.position.y
 
@@ -69,23 +65,33 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
     
     if x_dist > 0 or (x_dist < - game_map.width // 2):
         new_position = ship.position.directional_offset(Direction.East)
-        if not game_map[new_position].is_occupied and not new_position in avoid_moves and new_position not in forbiden_slots:
+        if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             x_value = game_map[new_position].halite_amount
             directions.append(Direction.East)
+        # else:
+        #     oposite_position = ship.position.directional_offset(Direction.West)
+        #     if not game_map[oposite_position].is_occupied and not oposite_position in avoid_moves:
+        #         x_value = game_map[oposite_position].halite_amount + 500
+        #         directions.append(Direction.West)
         else:
             x_value = 9999
             directions.append(Direction.Still)
     elif x_dist < 0 or (x_dist > game_map.width // 2):
         new_position = ship.position.directional_offset(Direction.West)
-        if not game_map[new_position].is_occupied and not new_position in avoid_moves and new_position not in forbiden_slots:
+        if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             x_value = game_map[new_position].halite_amount
             directions.append(Direction.West)
+        # else:
+        #     oposite_position = ship.position.directional_offset(Direction.East)
+        #     if not game_map[oposite_position].is_occupied and not oposite_position in avoid_moves:
+        #         x_value = game_map[oposite_position].halite_amount + 500
+        #         directions.append(Direction.East)
         else:
             x_value = 9999
             directions.append(Direction.Still)
     else:
         new_position = ship.position.directional_offset(Direction.East)
-        if not game_map[new_position].is_occupied and not new_position in avoid_moves and new_position not in forbiden_slots:
+        if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             x_value_1 = game_map[new_position].halite_amount + 500
             direction_1 = Direction.East
         else:
@@ -93,7 +99,7 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
             direction_1 = Direction.Still
         
         new_position = ship.position.directional_offset(Direction.West)
-        if not game_map[new_position].is_occupied and not new_position in avoid_moves and new_position not in forbiden_slots:
+        if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             x_value_2 = game_map[new_position].halite_amount + 500
             direction_2 = Direction.West
         else:
@@ -106,26 +112,38 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
         else:
             x_value = x_value_2
             directions.append(direction_2)
+        # x_value = 9999
+        # directions.append(Direction.Still)
 
     if y_dist > 0 or (y_dist < - game_map.height // 2):
         new_position = ship.position.directional_offset(Direction.South)
-        if not game_map[new_position].is_occupied and not new_position in avoid_moves and new_position not in forbiden_slots:
+        if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             y_value = game_map[new_position].halite_amount
             directions.append(Direction.South)
+        # else:
+        #     oposite_position = ship.position.directional_offset(Direction.North)
+        #     if not game_map[oposite_position].is_occupied and not oposite_position in avoid_moves:
+        #         y_value = game_map[oposite_position].halite_amount + 500
+        #         directions.append(Direction.North)
         else:
             y_value = 9999
             directions.append(Direction.Still)
     elif y_dist < 0 or (y_dist > game_map.height // 2):
         new_position = ship.position.directional_offset(Direction.North)
-        if not game_map[new_position].is_occupied and not new_position in avoid_moves and new_position not in forbiden_slots:
+        if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             y_value = game_map[new_position].halite_amount
             directions.append(Direction.North)
+        # else:
+        #     oposite_position = ship.position.directional_offset(Direction.South)
+        #     if not game_map[oposite_position].is_occupied and not oposite_position in avoid_moves:
+        #         y_value = game_map[oposite_position].halite_amount + 500
+        #         directions.append(Direction.South)
         else:
             y_value = 9999
             directions.append(Direction.Still)
     else:
         new_position = ship.position.directional_offset(Direction.South)
-        if not game_map[new_position].is_occupied and not new_position in avoid_moves and new_position not in forbiden_slots:
+        if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             y_value_1 = game_map[new_position].halite_amount + 500
             direction_1 = Direction.South
         else:
@@ -133,7 +151,7 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
             direction_1 = Direction.Still
         
         new_position = ship.position.directional_offset(Direction.North)
-        if not game_map[new_position].is_occupied and not new_position in avoid_moves and new_position not in forbiden_slots:
+        if not game_map[new_position].is_occupied and not new_position in avoid_moves:
             y_value_2 = game_map[new_position].halite_amount + 500
             direction_2 = Direction.North
         else:
@@ -146,6 +164,8 @@ def cheap_navigation(ship, game_map, avoid_moves, destination):
         else:
             y_value = y_value_2
             directions.append(direction_2)
+        # y_value = 9999
+        # directions.append(Direction.Still)
 
     if x_value < y_value:
         direction = directions[0]
@@ -241,21 +261,13 @@ def get_distance_to_dropoff(ship, game_map, myself):
 
     return closest_distance
 
-def get_sweet_spots(game_map, turn_number):
+def get_sweet_spots(game_map):
     """Return array of good spots on map"""
     good_areas = []
-    max_turn = 25*(game_map.width - 32)/8 + 401
-    halite_coeff_max = 1.2
-
-    halite_coeff = (max_turn - (max_turn / 2))/turn_number
-    logging.info("Halite coeff: {}".format(halite_coeff))
-
-    halite_coeff = halite_coeff_max if halite_coeff > halite_coeff_max else halite_coeff
-
     for x in range(game_map.width):
         for y in range(game_map.height):
             pos = Position(x,y)
-            if game_map[pos].halite_amount > (450 * halite_coeff):
+            if game_map[pos].halite_amount > 550:
                 good_areas.append(pos)
 
     return good_areas
@@ -268,7 +280,8 @@ def sort_sweet_spots(game_map, act_position, good_spots):
         distance = game_map.calculate_distance(act_position, good_spot)
         if distance < 15:
             distance_list[distance] = good_spot
-
+    # logging.info("Good spots: {}".format(good_spots))
+    
     dist_by_value = sorted(distance_list.items(), key=lambda kv: kv[0])
 
     if len(dist_by_value) > 3:
@@ -278,81 +291,9 @@ def sort_sweet_spots(game_map, act_position, good_spots):
     for item in dist_by_value:
         return_list.append(item[1])
 
+    # logging.info(return_list)
+
     return return_list
-
-def check_direction_space(game_map, ship, myself, cmd_dir, avoid_moves):
-    """Look forward if there is any ship move to less occupied space"""
-    positions = [ship.position.directional_offset(cmd_dir)]
-    positions.append(positions[-1].directional_offset(cmd_dir))
-    positions.append(positions[-1].directional_offset(cmd_dir))
-    logging.info("Direction space: {}".format(positions))
-    ship_present = False
-
-    for position in positions:
-        if game_map[position].is_occupied:
-            ship_present = True
-            break
-
-    if cmd_dir == Direction.East:
-        alternative_directions = [Direction.South, Direction.North]
-    elif cmd_dir == Direction.West:
-        alternative_directions = [Direction.South, Direction.North]
-    elif cmd_dir == Direction.South:
-        alternative_directions = [Direction.East, Direction.West]
-    elif cmd_dir == Direction.North:
-        alternative_directions = [Direction.East, Direction.West]
-
-    if ship_present:
-        direction = random.choice(alternative_directions)
-        move = ship.position.directional_offset(direction)
-        alternative_directions.remove(direction)
-        if move not in avoid_moves and not game_map[move].is_occupied:
-            return direction
-        else:
-            direction = alternative_directions[0]
-            move = ship.position.directional_offset(direction)
-            if move not in avoid_moves and not game_map[move].is_occupied:
-                return direction
-            else:
-                return Direction.Still
-    else:
-        if positions[0] not in avoid_moves and not game_map[positions[0]].is_occupied:
-            return cmd_dir
-        else:
-            return Direction.Still
-
-def get_target_direction(source, target):
-    """
-    Returns where in the cardinality spectrum the target is from source. e.g.: North, East; South, West; etc.
-    NOTE: Ignores toroid
-    :param source: The source position
-    :param target: The target position
-    :return: A list containing the valid Direction.
-    """
-    directions = []
-
-    vertical = Direction.South if target.y > source.y else Direction.North if target.y < source.y else None
-    horizontal = Direction.East if target.x > source.x else Direction.West if target.x < source.x else None
-
-    if vertical is not None:
-        directions.append(vertical)
-    if horizontal is not None:
-        directions.append(horizontal)
-
-    return directions
-
-def get_dropoff_list(myself):
-    """Get list of dropoff positions"""
-    dropoff_positions = []
-
-    dropoffs = me.get_dropoffs()
-    
-    for dropoff in dropoffs:
-        dropoff_positions.append(dropoff.position)
-
-    dropoff_positions = dropoff_positions + me.shipyard.position
-
-    return dropoff_positions
 
 while True:
     # This loop handles each turn of the game. The game object changes every turn, and you refresh that state by
@@ -362,12 +303,7 @@ while True:
     me = game.me
     game_map = game.game_map
     # logging.info("Game map size: {},{}".format(game_map.width, game_map.height))
-    good_spots = get_sweet_spots(game_map, game.turn_number)
-
-    if game_map.width > 38:
-        max_dropoff = 1
-    else:
-        max_dropoff = 0
+    good_spots = get_sweet_spots(game_map)
 
     max_turn = 25*(game_map.width - 32)/8 + 401
 
@@ -376,8 +312,6 @@ while True:
         self_destruct = True
 
     halite_available = me.halite_amount
-
-    exit_slot = me.shipyard.position
 
     # A command queue holds all the commands you will run this turn. You build this list up and submit it at the
     #   end of the turn.
@@ -389,9 +323,6 @@ while True:
     for doff in me.get_dropoffs():
         dropoff_positions.append(doff.position)
 
-    dropoff_positions.append(me.shipyard.position)
-
-    # logging.info("Dropoffs: {}".format(dropoff_positions))
     # logging.info("Turn start: {}".format(ship_status))
 
     for ship in me.get_ships():
@@ -433,36 +364,25 @@ while True:
                 best_cell = ship.position
                 # logging.info("Actual: {} Best: {}".format(actual_cell, best_cell))
                 if game_map[best_cell].halite_amount < 75:
-                    """If actual cell halite amount is low then look for new direction"""
-                    sweet_spots = sort_sweet_spots(game_map, ship.position, good_spots)
-                    if len(sweet_spots) > 0 and not game_map[sweet_spots[0]].is_occupied and not sweet_spots[0] in avoid_moves:
-                        best_cell = sweet_spots[0]
-                    else:
-                        for cell in surroundings:
-                            if game_map[best_cell].halite_amount < game_map[cell].halite_amount/2 and not game_map[cell].is_occupied and cell not in avoid_moves:
-                                # logging.info("Actual: {} New: {}".format(game_map[best_cell].halite_amount, game_map[cell].halite_amount/3))
-                                best_cell = cell
+                    # sweet_spots = sort_sweet_spots(game_map, ship.position, good_spots)
+                    # if len(sweet_spots) > 0 and not game_map[sweet_spots[0]].is_occupied and not sweet_spots[0] in avoid_moves:
+                    #     best_cell = sweet_spots[0]
+                    # else:
+                    for cell in surroundings:
+                        if game_map[best_cell].halite_amount < game_map[cell].halite_amount/2 and not game_map[cell].is_occupied and cell not in avoid_moves:
+                            # logging.info("Actual: {} New: {}".format(game_map[best_cell].halite_amount, game_map[cell].halite_amount/3))
+                            best_cell = cell
+                    
 
                 # logging.info("Selected: {}".format(best_cell))
                 if best_cell == actual_cell:
-                    """If we are actually sitting on best cell"""
                     if game_map[best_cell].halite_amount == 0:
-                        move = get_random_move(ship, game_map, avoid_moves, dropoff_positions)
-                        if move is not None:
-                            logging.info("Random move: {}".format(move))
-                            command_queue.append(ship.move(move))
-                        else:
-                            command_queue.append(ship.stay_still())
+                        move = get_random_move(ship, game_map, avoid_moves)
+                        command_queue.append(ship.move(move))
                     else:
                         command_queue.append(ship.stay_still())
                 else:
-                    # cmd_dir = possible_direction[ship.id%4]
-                    cmd_dir = get_target_direction(actual_cell, best_cell)[0]
-                    # logging.info("ADirection: {}".format(cmd_dir))
-                    move = check_direction_space(game_map, ship, me, cmd_dir, avoid_moves)
-                    logging.info("Returned move: {}".format(move))
-                    avoid_moves.append(ship.position.directional_offset(move))
-                    # move = game_map.naive_navigate(ship, best_cell)
+                    move = game_map.naive_navigate(ship, best_cell)
                     command_queue.append(ship.move(move))
                 continue
         elif ship.is_full:
@@ -479,13 +399,8 @@ while True:
             continue
 
         if game_map[ship.position].halite_amount < constants.MAX_HALITE / 10 or ship.is_full:
-            logging.info("Bad part id: {}".format(ship.id))
-            move = get_random_move(ship, game_map, avoid_moves, dropoff_positions)
-            if move is not None:
-                logging.info("Random move: {}".format(move))
-                command_queue.append(ship.move(move))
-            else:
-                command_queue.append(ship.stay_still())
+            move = get_random_move(ship, game_map, avoid_moves)
+            command_queue.append(ship.move(move))
         else:
             command_queue.append(ship.stay_still())
 
@@ -495,9 +410,9 @@ while True:
 
     ship_optimal_count = turn_no // 5
     if game_map.width < 35:
-        max_ships = 26 + dropoff_count * 3
+        max_ships = 22 + dropoff_count * 3
     else:
-        max_ships = 28 + dropoff_count * 3
+        max_ships = 24 + dropoff_count * 3
 
     ship_optimal_count = ship_optimal_count if ship_optimal_count < max_ships else max_ships
 
