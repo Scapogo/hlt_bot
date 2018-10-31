@@ -18,6 +18,7 @@ from hlt import constants
 from hlt.positionals import Direction, Position
 
 import operator
+import numpy as np
 
 """ <<<Game Begin>>> """
 
@@ -52,7 +53,7 @@ def get_random_move(ship, game_map, avoid_moves, shipyards):
         if len(options) == 0:
             return Direction.Still
 
-def cheap_navigation_2(ship, game_map, avoid_moves, destination, myself):
+def cheap_navigation_2(ship, game_map, avoid_moves, destination):
     """Get best direction to move towards target with avoid move check"""
     directions = game_map.get_unsafe_moves(ship.position, destination)
 
@@ -67,7 +68,7 @@ def cheap_navigation_2(ship, game_map, avoid_moves, destination, myself):
 
     if len(directions) == 1:
         new_position = ship.position.directional_offset(directions[0])
-        if (not game_map[new_position].is_occupied or (new_position == destination and game_map[new_position].ship not in myself.get_ships())) and not new_position in avoid_moves and new_position not in forbiden_slots:
+        if not game_map[new_position].is_occupied and not new_position in avoid_moves and new_position not in forbiden_slots:
             return directions[0]
         else:
             if directions[0] in [Direction.South, Direction.North]:
@@ -458,6 +459,25 @@ def get_dropoff_list(myself):
 
     return dropoff_positions
 
+def get_data(myself, game_map):
+    """Collect data to arrray for RL input"""
+    out_data = np.zeroes([game_map.width, game_map.height, 4])
+
+    for x in range(game_map.width):
+        for y in range(game_map.height):
+            actual_position = Position(x, y)
+            out_data[x, y, 0] = game_map[act_position].halite_amount
+            if game_map[act_position].is_occupied:
+                out_data[x, y, 2] = 1
+            if game_map[act_position].has_structure:
+                out_data[x, y, 3] = 1
+
+    ships = myself.get_ships
+
+    for ship in ships:
+        out_data[ship.position.x, ship.position.y, 1] = ship.halite_amount
+        out_data[ship.position.x, ship.position.y, 2] = 2
+
 while True:
     # This loop handles each turn of the game. The game object changes every turn, and you refresh that state by
     #   running update_frame().
@@ -524,42 +544,22 @@ while True:
         elif ship_status[ship.id] == "returning":
             if ship.position == me.shipyard.position or ship.position in dropoff_positions:
                 ship_status[ship.id] = "harvesting"
-                leave_directions = [Direction.North, Direction.South]
-                harv_direction = random.choice(leave_directions)
-                leave_position = ship.position.directional_offset(harv_direction)
-                if not game_map[leave_position].is_occupied and leave_position not in avoid_moves:
-                    avoid_moves.append(game_map.normalize(leave_position))
+                harv_direction = random.choice([Direction.North, Direction.South])
+                north_position = ship.position.directional_offset(harv_direction)
+                if not game_map[north_position].is_occupied and north_position not in avoid_moves:
+                    avoid_moves.append(game_map.normalize(north_position))
                     command_queue.append(ship.move(harv_direction))
-                    if harv_direction == Direction.North:
-                        ship_status[ship.id] = "takeoffnorth"
-                    else:
-                        ship_status[ship.id] = "takeoffsouth"
                     continue
-                else:
-                    leave_directions.remove(harv_direction)
-                    harv_direction = random.choice(leave_directions)
-                    leave_position = ship.position.directional_offset(harv_direction)
-                    if not game_map[leave_position].is_occupied and leave_position not in avoid_moves:
-                        avoid_moves.append(game_map.normalize(leave_position))
-                        command_queue.append(ship.move(harv_direction))
-                        if harv_direction == Direction.North:
-                            ship_status[ship.id] = "takeoffnorth"
-                        else:
-                            ship_status[ship.id] = "takeoffsouth"
-                        continue
             else:
+                # distance_to_base = game_map.calculate_distance(ship.position, me.shipyard.position)
                 close_doff = get_closest_dropoff(ship, game_map, me)
-                move = cheap_navigation_2(ship, game_map, avoid_moves, close_doff, me)
-                directions_to_dropoff = [ship.position.directional_offset(Direction.East), ship.position.directional_offset(Direction.West)]
+                # move = cheap_navigation(ship, game_map, avoid_moves, close_doff)
+                move = cheap_navigation_2(ship, game_map, avoid_moves, close_doff)
                 logging.info("Chap move 2: ship id {} move {}".format(ship.id, move))
-                # Don't zig zag move infront of dropoff
-                if close_doff in directions_to_dropoff:
-                    if ship.position.directional_offset(move) not in directions_to_dropoff:
-                        move = Direction.Still
                 avoid_moves.append(game_map.normalize(ship.position.directional_offset(move)))
                 command_queue.append(ship.move(move))
                 continue
-        elif ship_status[ship.id] == "harvesting" and not ship.is_full:
+        elif ship_status[ship.id] == "harvesting" and not ship.is_full: #ship.halite_amount < constants.MAX_HALITE / 1.5:
             if ship.position != me.shipyard.position:
                 """If ship is not in shipyard and looking for halite"""
                 surroundings = ship.position.get_surrounding_cardinals()
@@ -583,7 +583,6 @@ while True:
                 if best_cell == actual_cell:
                     """If we are actually sitting on best cell"""
                     if game_map[best_cell].halite_amount == 0:
-                        # If there is no halite inactual cell move
                         move = get_random_move(ship, game_map, avoid_moves, dropoff_positions)
                         if move is not None:
                             logging.info("Random move: {}".format(move))
@@ -593,56 +592,15 @@ while True:
                     else:
                         command_queue.append(ship.stay_still())
                 else:
-                    if ship.halite_amount > 900 and (game_map[best_cell].halite_amount * 0.25) < (game_map[ship.position].halite_amount * 0.1):
-                        if game_map[ship.position].halite_amount > 100:
-                            avoid_moves.append(game_map.normalize(ship.position.directional_offset(Direction.Still)))
-                            command_queue.append(ship.stay_still())
-                        else:
-                            ship_status[ship.id] = "returning"
-                            close_doff = get_closest_dropoff(ship, game_map, me)
-                            move = cheap_navigation_2(ship, game_map, avoid_moves, close_doff, me)
-                            logging.info("Chap move 2: ship id {} move {}".format(ship.id, move))
-                            avoid_moves.append(game_map.normalize(ship.position.directional_offset(move)))
-                            command_queue.append(ship.move(move))
-                    else:
-                        cmd_dir = get_target_direction(actual_cell, best_cell)[0]
-                        # logging.info("ADirection: {}".format(cmd_dir))
-                        move = check_direction_space(game_map, ship, me, cmd_dir, avoid_moves)
-                        logging.info("Returned move: ship id {} move {}".format(ship.id, move))
-                        avoid_moves.append(game_map.normalize(ship.position.directional_offset(move)))
-                        # move = game_map.naive_navigate(ship, best_cell)
-                        command_queue.append(ship.move(move))
+                    # cmd_dir = possible_direction[ship.id%4]
+                    cmd_dir = get_target_direction(actual_cell, best_cell)[0]
+                    # logging.info("ADirection: {}".format(cmd_dir))
+                    move = check_direction_space(game_map, ship, me, cmd_dir, avoid_moves)
+                    logging.info("Returned move: ship id {} move {}".format(ship.id, move))
+                    avoid_moves.append(game_map.normalize(ship.position.directional_offset(move)))
+                    # move = game_map.naive_navigate(ship, best_cell)
+                    command_queue.append(ship.move(move))
                 continue
-        elif ship_status[ship.id] == "takeoffnorth":
-            """Depart ship north"""
-            close_doff = get_closest_dropoff(ship, game_map, me)
-            distance = game_map.calculate_distance(ship.position, close_doff)
-            if distance == 1:
-                new_position = ship.position.directional_offset(Direction.North)
-                if new_position not in avoid_moves and not game_map[new_position].is_occupied:
-                    avoid_moves.append(new_position)
-                    command_queue.append(ship.move(Direction.North))
-                    ship_status[ship.id] = "harvesting"
-                else:
-                    new_position = ship.position.directional_offset(Direction.Still)
-                    avoid_moves.append(new_position)
-                    command_queue.append(ship.move(Direction.Still))
-            continue
-        elif ship_status[ship.id] == "takeoffsouth":
-            """Depart ship south"""
-            close_doff = get_closest_dropoff(ship, game_map, me)
-            distance = game_map.calculate_distance(ship.position, close_doff)
-            if distance == 1:
-                new_position = ship.position.directional_offset(Direction.South)
-                if new_position not in avoid_moves and not game_map[new_position].is_occupied:
-                    avoid_moves.append(new_position)
-                    command_queue.append(ship.move(Direction.South))
-                    ship_status[ship.id] = "harvesting"
-                else:
-                    new_position = ship.position.directional_offset(Direction.Still)
-                    avoid_moves.append(new_position)
-                    command_queue.append(ship.move(Direction.Still))
-            continue
         elif ship.is_full:
             distance_to_base = get_distance_to_dropoff(ship, game_map, me)
             if dropoff_count < max_dropoff and distance_to_base > 10 and game_map[ship.position].halite_amount > 200 and me.halite_amount >= constants.DROPOFF_COST:
@@ -652,7 +610,7 @@ while True:
                 ship_status[ship.id] = "returning"
                 close_doff = get_closest_dropoff(ship, game_map, me)
                 # move = cheap_navigation(ship, game_map, avoid_moves, close_doff)
-                move = cheap_navigation_2(ship, game_map, avoid_moves, close_doff, me)
+                move = cheap_navigation_2(ship, game_map, avoid_moves, close_doff)
                 logging.info("Chap move 2: ship id {} move {}".format(ship.id, move))
                 avoid_moves.append(game_map.normalize(ship.position.directional_offset(move)))
                 command_queue.append(ship.move(move))
